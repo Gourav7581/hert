@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3D Neon Heart - Drawing Animation</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    min-height: 100%;
+    overflow: hidden;
+    user-select: none;
+  }
+  body {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: radial-gradient(ellipse at 50% 45%, #2c1042 0%, #120921 35%, #06050e 72%, #020208 100%);
+  }
+
+  /* Canvas for sparks and particles */
+  #fxCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .scene {
+    position: relative;
+    width: min(100vw, 920px);
+    height: min(100vh, 860px);
+    min-height: 580px;
+    display: grid;
+    place-items: center;
+    perspective: 1100px;
+    isolation: isolate;
+  }
+
+  /* Radial ambient glow behind the heart */
+  .scene::before {
+    content: "";
+    position: absolute;
+    width: min(72vw, 560px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle, #ff1775 0%, #ff0055 30%, transparent 70%);
+    filter: blur(95px);
+    opacity: 0;
+    transition: opacity 1.8s ease-out;
+    z-index: -2;
+  }
+  .scene.completed::before {
+    opacity: .24;
+    animation: aura 4.5s ease-in-out infinite alternate;
+  }
+
+  /* Cosmic Stars */
+  .stars, .stars::before, .stars::after {
+    position: absolute; inset: 0; content: "";
+    pointer-events: none;
+    background-image:
+      radial-gradient(2px 2px at 12% 22%, #fff 98%, transparent),
+      radial-gradient(1px 1px at 28% 70%, #ff91c8 98%, transparent),
+      radial-gradient(2px 2px at 78% 18%, #fff 98%, transparent),
+      radial-gradient(1px 1px at 87% 62%, #c5a2ff 98%, transparent),
+      radial-gradient(2px 2px at 66% 83%, #fff 98%, transparent),
+      radial-gradient(1px 1px at 44% 13%, #ff5e9c 98%, transparent),
+      radial-gradient(1.5px 1.5px at 17% 82%, #a8eaff 98%, transparent),
+      radial-gradient(1px 1px at 53% 51%, #fff 98%, transparent);
+    background-size: 340px 320px;
+    opacity: .65;
+    animation: starDrift 22s linear infinite;
+  }
+  .stars::before { transform: scale(1.35); opacity: .4; animation-duration: 32s; }
+  .stars::after { transform: scale(.75); opacity: .35; animation-duration: 15s; }
+
+  /* 3D Container */
+  .heart-wrap {
+    position: relative;
+    width: min(80vw, 490px);
+    aspect-ratio: 1;
+    display: grid;
+    place-items: center;
+    transform-style: preserve-3d;
+    transition: transform 0.15s ease-out;
+  }
+  .heart-wrap.floating {
+    animation: float 4.6s ease-in-out infinite;
+  }
+
+  .heart {
+    width: 82%;
+    height: 82%;
+    overflow: visible;
+    transform-style: preserve-3d;
+    filter: drop-shadow(0 0 16px rgba(255, 23, 111, 0.65)) drop-shadow(0 0 38px rgba(255, 23, 111, 0.45));
+    transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .heart.active-rotation {
+    animation: rotateHeart 7.5s ease-in-out infinite;
+  }
+
+  /* SVG Heart Layers */
+  .heart-extrusion {
+    opacity: 0;
+    transform: translate(0, 12px) scale(0.97);
+    transition: opacity 1.2s ease, transform 1.2s ease;
+    transform-origin: center;
+  }
+
+  .heart-edge {
+    fill: none;
+    stroke: #ff3c8c;
+    stroke-width: 6;
+    opacity: 0;
+    filter: blur(2.5px);
+    transition: opacity 1s ease;
+  }
+
+  .heart-fill {
+    fill: url(#heartGradient);
+    stroke: #ff9ec4;
+    stroke-width: 1.2;
+    opacity: 0;
+    transform: scale(0.94);
+    transform-origin: center;
+    transition: opacity 1.2s cubic-bezier(0.16, 1, 0.3, 1), transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Drawing Path Lines (Progressively animated) */
+  .draw-glow {
+    fill: none;
+    stroke: #ff1075;
+    stroke-width: 11;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: blur(5px);
+    opacity: 0.9;
+  }
+
+  .draw-stroke {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 3.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px #ff4b9b) drop-shadow(0 0 14px #ff006a);
+  }
+
+  .draw-accent {
+    fill: none;
+    stroke: #ff9fd0;
+    stroke-width: 5.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.85;
+  }
+
+  /* Specular Highlight */
+  .specular-shine {
+    opacity: 0;
+    transition: opacity 1s ease 0.4s;
+  }
+
+  .shine-animated {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-dasharray: 2 24;
+    opacity: 0;
+    transition: opacity 1s ease;
+  }
+  .completed .shine-animated {
+    opacity: .85;
+    animation: shineMove 3.2s linear infinite;
+  }
+
+  /* Neon Orbits */
+  .orbit {
+    position: absolute;
+    width: 110%;
+    height: 36%;
+    border: 1.5px solid rgba(255, 117, 183, 0.45);
+    border-radius: 50%;
+    transform: rotate(-22deg) rotateX(66deg) translateZ(50px) scale(0.6);
+    box-shadow: 0 0 20px rgba(255, 45, 131, 0.65), inset 0 0 18px rgba(255, 45, 131, 0.35);
+    opacity: 0;
+    transition: opacity 1.5s ease, transform 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+    pointer-events: none;
+  }
+  .orbit.two {
+    width: 118%;
+    height: 50%;
+    border-color: rgba(177, 138, 255, 0.4);
+    transform: rotate(34deg) rotateX(68deg) translateZ(-35px) scale(0.6);
+    box-shadow: 0 0 20px rgba(162, 102, 255, 0.6), inset 0 0 18px rgba(162, 102, 255, 0.3);
+  }
+
+  .completed .orbit {
+    opacity: 1;
+    transform: rotate(-22deg) rotateX(66deg) translateZ(50px) scale(1);
+    animation: orbit 9s linear infinite;
+  }
+  .completed .orbit.two {
+    opacity: 1;
+    transform: rotate(34deg) rotateX(68deg) translateZ(-35px) scale(1);
+    animation: orbit 12s linear infinite reverse;
+  }
+
+  .orbit-dot {
+    position: absolute;
+    top: 8%; left: 12%;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 12px #fff, 0 0 28px #ff2580, 0 0 50px #ff2580;
+  }
+
+  /* Laser Spark Cursor that actively draws the heart */
+  .laser-head {
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .laser-head::before {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 16px 5px #ffffff, 0 0 35px 12px #ff0077, 0 0 65px 20px #ff0055;
+    animation: pulseLaser 0.6s ease-in-out infinite alternate;
+  }
+
+  /* Shockwave expansion on finish */
+  .shockwave {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 3px solid #ff4296;
+    box-shadow: 0 0 30px #ff0077, inset 0 0 20px #ff0077;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.1);
+  }
+  .shockwave.animate {
+    animation: expandWave 1.4s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+  }
+
+  /* Caption & Typography */
+  .caption {
+    position: absolute;
+    bottom: 7%;
+    text-align: center;
+    width: 100%;
+    padding: 0 18px;
+    z-index: 25;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(1.6rem, 5vw, 2.9rem);
+    letter-spacing: .25em;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #ffffff, #ff89be, #d0b0ff, #ffffff);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 16px rgba(255, 50, 132, 0.65));
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 1.2s ease, transform 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .subtitle {
+    margin-top: 10px;
+    color: #e4c8e8;
+    font-size: clamp(.8rem, 2.2vw, 1.05rem);
+    letter-spacing: .22em;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 1.2s ease 0.3s, transform 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.3s;
+  }
+
+  .completed h1, .completed .subtitle {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .completed h1 {
+    animation: textShimmer 6s linear infinite;
+  }
+
+  /* Control Panel */
+  .control-panel {
+    position: absolute;
+    top: 24px;
+    display: flex;
+    gap: 12px;
+    z-index: 30;
+  }
+  .glass-btn {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    padding: 9px 20px;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    transition: all 0.3s ease;
+  }
+  .glass-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 117, 183, 0.7);
+    box-shadow: 0 0 25px rgba(255, 35, 128, 0.5);
+    transform: translateY(-2px);
+  }
+  .glass-btn:active {
+    transform: translateY(1px);
+  }
+
+  /* Sparkles in scene */
+  .spark {
+    position: absolute;
+    color: #fff;
+    font-size: 20px;
+    text-shadow: 0 0 12px #ff6aa9, 0 0 25px #ff6aa9;
+    opacity: 0;
+    transition: opacity 1.5s ease;
+    pointer-events: none;
+  }
+  .completed .spark {
+    opacity: 1;
+    animation: twinkle 2.2s ease-in-out infinite alternate;
+  }
+  .s1 { top: 22%; left: 19%; }
+  .s2 { top: 27%; right: 17%; animation-delay: .7s; }
+  .s3 { bottom: 25%; left: 23%; animation-delay: 1.2s; }
+  .s4 { bottom: 30%; right: 21%; animation-delay: .4s; }
+
+  /* Keyframe Animations */
+  @keyframes float {
+    0%, 100% { transform: translateY(0) rotateX(0deg); }
+    50% { transform: translateY(-18px) rotateX(4.5deg); }
+  }
+  @keyframes rotateHeart {
+    0%, 100% { transform: rotateY(-11deg) rotateX(5deg) rotateZ(-2.5deg); }
+    50% { transform: rotateY(11deg) rotateX(-4deg) rotateZ(2.5deg); }
+  }
+  @keyframes orbit {
+    from { rotate: 0deg; }
+    to { rotate: 360deg; }
+  }
+  @keyframes shineMove {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -220; }
+  }
+  @keyframes aura {
+    from { opacity: .16; transform: scale(.88); }
+    to { opacity: .28; transform: scale(1.18); }
+  }
+  @keyframes starDrift {
+    from { transform: translateY(0); }
+    to { transform: translateY(-90px); }
+  }
+  @keyframes twinkle {
+    from { opacity: .3; transform: scale(.7) rotate(0deg); }
+    to { opacity: 1; transform: scale(1.3) rotate(35deg); }
+  }
+  @keyframes pulseLaser {
+    from { transform: scale(0.85); }
+    to { transform: scale(1.2); }
+  }
+  @keyframes expandWave {
+    0% { opacity: 0.9; transform: translate(-50%, -50%) scale(0.1); }
+    70% { opacity: 0.5; }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(35); }
+  }
+  @keyframes textShimmer {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+  }
+
+  @media (max-height: 650px) {
+    .scene { min-height: 480px; }
+    .heart-wrap { width: min(60vh, 370px); }
+    .caption { bottom: 4%; }
+  }
+</style>
+</head>
+<body>
+
+  <canvas id="fxCanvas"></canvas>
+
+  <main class="scene" id="scene">
+    <div class="stars"></div>
+
+    <!-- Control Buttons -->
+    <div class="control-panel">
+      <button class="glass-btn" id="replayBtn" title="Dil ko dobara banta hua dekhein">
+        <span>✨ Replay</span>
+      </button>
+      <button class="glass-btn" id="soundBtn" title="Chime & Heartbeat Sound Toggle">
+        <span id="soundIcon">🔊 Sound: ON</span>
+      </button>
+    </div>
+
+    <!-- Background Sparkles -->
+    <span class="spark s1">✦</span>
+    <span class="spark s2">✨</span>
+    <span class="spark s3">✨</span>
+    <span class="spark s4">✦</span>
+
+    <div class="heart-wrap" id="heartWrap" aria-label="Animated 3D neon heart">
+      <div class="orbit"><span class="orbit-dot"></span></div>
+      <div class="orbit two"><span class="orbit-dot"></span></div>
+
+      <!-- Shockwave ring when heart finishes drawing -->
+      <div class="shockwave" id="shockwave"></div>
+
+      <!-- Laser Head / Spark Follower that draws the path -->
+      <div class="laser-head" id="laserHead"></div>
+
+      <svg class="heart" id="heartSvg" viewBox="0 0 200 190" role="img" aria-label="Glowing pink heart">
+        <defs>
+          <linearGradient id="heartGradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ffb2d7"/>
+            <stop offset="28%" stop-color="#ff4c9a"/>
+            <stop offset="65%" stop-color="#ed126b"/>
+            <stop offset="100%" stop-color="#6e064c"/>
+          </linearGradient>
+          <linearGradient id="sideGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#65073e"/>
+            <stop offset="100%" stop-color="#ff3288"/>
+          </linearGradient>
+        </defs>
+
+        <!-- 3D Extrusion Layer (fades in once drawing completes) -->
+        <path id="heartExtrusion" class="heart-extrusion"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"
+          fill="#65073e" />
+
+        <!-- 3D Edge Layer -->
+        <path id="heartEdge" class="heart-edge"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"
+          transform="translate(0 4)"/>
+
+        <!-- Filled Core (fades in once drawing completes) -->
+        <path id="heartFill" class="heart-fill"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"/>
+
+        <!-- Gloss Specular Highlight -->
+        <path id="specularShine" class="specular-shine"
+          d="M43 51 C45 32 67 29 82 42"
+          fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/>
+
+        <!-- Animated dotted neon shine -->
+        <path id="shineAnimated" class="shine-animated"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"/>
+
+        <!-- DRAWING PATHS: These actively draw when the page runs -->
+        <path id="pathGlow" class="draw-glow"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"/>
+        <path id="pathAccent" class="draw-accent"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"/>
+        <path id="drawPath" class="draw-stroke"
+          d="M100 170 C82 151 18 111 18 61 C18 20 67 12 100 48 C133 12 182 20 182 61 C182 111 118 151 100 170Z"/>
+      </svg>
+    </div>
+
+    <!-- Title and Subtitle -->
+    <section class="caption">
+      <h1>Made with love For My Wife Chanchal</h1>
+      <div class="subtitle">A LITTLE MAGIC IN EVERY HEART ✨💖</div>
+    </section>
+  </main>
+
+  <script>
+    // --- Canvas Particle Engine for Sparks ---
+    const canvas = document.getElementById('fxCanvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    class SparkParticle {
+      constructor(x, y, vx, vy, color, size, life) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.color = color;
+        this.size = size;
+        this.initialLife = life;
+        this.life = life;
+        this.alpha = 1;
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.04;
+        this.vx *= 0.98;
+        this.vy *= 0.98;
+        this.life--;
+        this.alpha = Math.max(0, this.life / this.initialLife);
+      }
+      draw(c) {
+        c.save();
+        c.globalAlpha = this.alpha;
+        c.beginPath();
+        c.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        c.fillStyle = this.color;
+        c.shadowColor = this.color;
+        c.shadowBlur = 10;
+        c.fill();
+        c.restore();
+      }
+    }
+
+    function spawnTrailSparks(x, y) {
+      const colors = ['#ffffff', '#ff94c2', '#ff1493', '#ffe4ef', '#b18aff'];
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 2.5 + 0.5;
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        particles.push(new SparkParticle(
+          x + (Math.random() - 0.5) * 8,
+          y + (Math.random() - 0.5) * 8,
+          Math.cos(angle) * speed,
+          Math.sin(angle) * speed - 0.5,
+          color,
+          Math.random() * 2.4 + 1.2,
+          Math.floor(Math.random() * 25 + 20)
+        ));
+      }
+    }
+
+    function spawnExplosion(x, y) {
+      const colors = ['#ffffff', '#ff007f', '#ff69b4', '#ffd1dc', '#a855f7', '#ffb3c6'];
+      for (let i = 0; i < 90; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 7 + 2;
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        particles.push(new SparkParticle(
+          x,
+          y,
+          Math.cos(angle) * speed,
+          Math.sin(angle) * speed,
+          color,
+          Math.random() * 3 + 1.5,
+          Math.floor(Math.random() * 50 + 35)
+        ));
+      }
+    }
+
+    function renderParticles() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update();
+        particles[i].draw(ctx);
+        if (particles[i].life <= 0) {
+          particles.splice(i, 1);
+        }
+      }
+      requestAnimationFrame(renderParticles);
+    }
+    requestAnimationFrame(renderParticles);
+
+    // --- Web Audio API Synth Effects ---
+    let soundEnabled = true;
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function playTone(freq, type = 'sine', duration = 0.15, gainVal = 0.08) {
+      if (!soundEnabled) return;
+      try {
+        initAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function playCompletionChime() {
+      if (!soundEnabled) return;
+      const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+      notes.forEach((freq, idx) => {
+        setTimeout(() => playTone(freq, 'triangle', 0.8, 0.12), idx * 90);
+      });
+    }
+
+    function playHeartbeatSound() {
+      if (!soundEnabled) return;
+      try {
+        initAudio();
+        const osc1 = audioCtx.createOscillator();
+        const gain1 = audioCtx.createGain();
+        osc1.frequency.setValueAtTime(80, audioCtx.currentTime);
+        osc1.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.18);
+        gain1.gain.setValueAtTime(0.18, audioCtx.currentTime);
+        gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+        osc1.connect(gain1);
+        gain1.connect(audioCtx.destination);
+        osc1.start();
+        osc1.stop(audioCtx.currentTime + 0.18);
+
+        setTimeout(() => {
+          if (!soundEnabled) return;
+          const osc2 = audioCtx.createOscillator();
+          const gain2 = audioCtx.createGain();
+          osc2.frequency.setValueAtTime(75, audioCtx.currentTime);
+          osc2.frequency.exponentialRampToValueAtTime(35, audioCtx.currentTime + 0.16);
+          gain2.gain.setValueAtTime(0.14, audioCtx.currentTime);
+          gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.16);
+          osc2.connect(gain2);
+          gain2.connect(audioCtx.destination);
+          osc2.start();
+          osc2.stop(audioCtx.currentTime + 0.16);
+        }, 220);
+      } catch (e) {}
+    }
+
+    // --- Heart Drawing Animation Logic ---
+    const scene = document.getElementById('scene');
+    const heartSvg = document.getElementById('heartSvg');
+    const heartWrap = document.getElementById('heartWrap');
+    const drawPath = document.getElementById('drawPath');
+    const pathGlow = document.getElementById('pathGlow');
+    const pathAccent = document.getElementById('pathAccent');
+    const laserHead = document.getElementById('laserHead');
+    const shockwave = document.getElementById('shockwave');
+    const heartFill = document.getElementById('heartFill');
+    const heartEdge = document.getElementById('heartEdge');
+    const heartExtrusion = document.getElementById('heartExtrusion');
+    const specularShine = document.getElementById('specularShine');
+    const replayBtn = document.getElementById('replayBtn');
+    const soundBtn = document.getElementById('soundBtn');
+    const soundIcon = document.getElementById('soundIcon');
+
+    let totalLength = 0;
+    let animationFrameId = null;
+    let heartbeatInterval = null;
+    let isDrawing = false;
+
+    function setupPaths() {
+      totalLength = drawPath.getTotalLength();
+      [drawPath, pathGlow, pathAccent].forEach(p => {
+        p.style.strokeDasharray = totalLength;
+        p.style.strokeDashoffset = totalLength;
+      });
+    }
+
+    function resetVisuals() {
+      cancelAnimationFrame(animationFrameId);
+      clearInterval(heartbeatInterval);
+      scene.classList.remove('completed');
+      heartWrap.classList.remove('floating');
+      heartSvg.classList.remove('active-rotation');
+      shockwave.classList.remove('animate');
+
+      heartFill.style.opacity = '0';
+      heartFill.style.transform = 'scale(0.94)';
+      heartEdge.style.opacity = '0';
+      heartExtrusion.style.opacity = '0';
+      specularShine.style.opacity = '0';
+      laserHead.style.opacity = '0';
+
+      [drawPath, pathGlow, pathAccent].forEach(p => {
+        p.style.strokeDashoffset = totalLength;
+        p.style.opacity = '1';
+      });
+    }
+
+    function startHeartDrawing(duration = 2700) {
+      if (isDrawing) return;
+      isDrawing = true;
+      resetVisuals();
+      laserHead.style.opacity = '1';
+
+      let startTime = null;
+      let lastToneProgress = 0;
+
+      function step(timestamp) {
+        if (!startTime) startTime = timestamp;
+        const elapsed = timestamp - startTime;
+        let progress = Math.min(elapsed / duration, 1);
+
+        // Smooth easeInOutCubic
+        const ease = progress < 0.5 
+          ? 4 * progress * progress * progress 
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+        const currentOffset = totalLength * (1 - ease);
+        drawPath.style.strokeDashoffset = currentOffset;
+        pathGlow.style.strokeDashoffset = currentOffset;
+        pathAccent.style.strokeDashoffset = currentOffset;
+
+        // Position the Laser Head Spark
+        const currentLength = totalLength * ease;
+        const pt = drawPath.getPointAtLength(currentLength);
+
+        // Convert SVG coordinates (viewBox 0 0 200 190) to Heart Wrap pixel coordinates
+        const wrapRect = heartWrap.getBoundingClientRect();
+        const svgRect = heartSvg.getBoundingClientRect();
+        const scaleX = svgRect.width / 200;
+        const scaleY = svgRect.height / 190;
+
+        const sparkX = (svgRect.left - wrapRect.left) + (pt.x * scaleX);
+        const sparkY = (svgRect.top - wrapRect.top) + (pt.y * scaleY);
+
+        laserHead.style.left = `${sparkX}px`;
+        laserHead.style.top = `${sparkY}px`;
+
+        // Spawn particles in canvas coordinates
+        const canvasSparkX = svgRect.left + (pt.x * scaleX);
+        const canvasSparkY = svgRect.top + (pt.y * scaleY);
+        spawnTrailSparks(canvasSparkX, canvasSparkY);
+
+        // Subtle melodic tone as the heart traces
+        if (progress - lastToneProgress >= 0.07) {
+          const freq = 340 + (ease * 480);
+          playTone(freq, 'sine', 0.07, 0.035);
+          lastToneProgress = progress;
+        }
+
+        if (progress < 1) {
+          animationFrameId = requestAnimationFrame(step);
+        } else {
+          completeDrawing(canvasSparkX, canvasSparkY);
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(step);
+    }
+
+    function completeDrawing(endX, endY) {
+      isDrawing = false;
+      laserHead.style.opacity = '0';
+
+      // 1. Shockwave & Celebration Particles
+      shockwave.style.left = '50%';
+      shockwave.style.top = '88%';
+      shockwave.classList.add('animate');
+      spawnExplosion(endX, endY);
+      playCompletionChime();
+
+      // 2. Fade in filled heart body & 3D bevel layers
+      setTimeout(() => {
+        heartFill.style.opacity = '1';
+        heartFill.style.transform = 'scale(1)';
+        heartEdge.style.opacity = '0.55';
+        heartExtrusion.style.opacity = '1';
+        specularShine.style.opacity = '0.85';
+      }, 150);
+
+      // 3. Activate scene elements & 3D animations
+      setTimeout(() => {
+        scene.classList.add('completed');
+        heartWrap.classList.add('floating');
+        heartSvg.classList.add('active-rotation');
+
+        // Start heartbeat audio & animation loop
+        heartbeatInterval = setInterval(playHeartbeatSound, 1400);
+      }, 700);
+    }
+
+    // --- Interactive 3D Parallax on Mouse Move ---
+    let mouseX = 0, mouseY = 0;
+    window.addEventListener('mousemove', (e) => {
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight / 2;
+      mouseX = (e.clientX - centerX) / centerX;
+      mouseY = (e.clientY - centerY) / centerY;
+      if (!isDrawing) {
+        heartWrap.style.transform = `rotateY(${mouseX * 18}deg) rotateX(${-mouseY * 18}deg)`;
+      }
+    });
+
+    // Spawn sparkles on click anywhere
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.control-panel')) return;
+      spawnTrailSparks(e.clientX, e.clientY);
+      spawnTrailSparks(e.clientX, e.clientY);
+      playTone(600 + Math.random() * 300, 'triangle', 0.1, 0.05);
+    });
+
+    // Replay Button Action
+    replayBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startHeartDrawing(2500);
+    });
+
+    // Sound Toggle Action
+    soundBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      soundEnabled = !soundEnabled;
+      soundIcon.textContent = soundEnabled ? '🔊 Sound: ON' : '🔇 Sound: OFF';
+      if (!soundEnabled) {
+        clearInterval(heartbeatInterval);
+      } else if (scene.classList.contains('completed')) {
+        heartbeatInterval = setInterval(playHeartbeatSound, 1400);
+      }
+    });
+
+    // Initialize and Start when page loads
+    window.addEventListener('DOMContentLoaded', () => {
+      setupPaths();
+      setTimeout(() => {
+        startHeartDrawing(2700);
+      }, 400);
+    });
+  </script>
+</body>
+</html>
